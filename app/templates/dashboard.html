@@ -1,0 +1,395 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+    <!-- Left Sidebar: Controls -->
+    <div class="bg-white p-6 rounded-lg shadow-md md:col-span-1 h-fit">
+        <h2 class="text-xl font-bold mb-4 border-b pb-2">Find a Seat</h2>
+        
+        <div class="mb-4">
+            <label class="block text-gray-700 font-bold mb-2">Date</label>
+            <!-- Only today is allowed based on rules -->
+            <input type="date" id="dateSelect" class="w-full border p-2 rounded bg-gray-100" readonly>
+            <p class="text-xs text-gray-500 mt-1">Booking is only available for today.</p>
+        </div>
+        
+        <div class="mb-4">
+            <label class="block text-gray-700 font-bold mb-2">Time Slot</label>
+            <select id="timeSelect" class="w-full border p-2 rounded">
+                <!-- Populated by JS -->
+            </select>
+        </div>
+        
+        <div class="mb-4">
+            <label class="block text-gray-700 font-bold mb-2">Floor</label>
+            <select id="floorSelect" class="w-full border p-2 rounded">
+                <option value="1">Floor 1</option>
+                <option value="2">Floor 2</option>
+                <option value="3">Floor 3</option>
+            </select>
+        </div>
+        
+        <button id="refreshBtn" class="w-full bg-blue-600 text-white font-bold py-2 rounded hover:bg-blue-700 transition">
+            Check Availability
+        </button>
+
+        <div class="mt-6 pt-4 border-t">
+            <h3 class="font-bold mb-2">Legend</h3>
+            <div class="flex items-center mb-2"><div class="w-4 h-4 bg-green-500 mr-2 rounded"></div> Available</div>
+            <div class="flex items-center mb-2"><div class="w-4 h-4 bg-red-500 mr-2 rounded"></div> Occupied</div>
+            <div class="flex items-center"><div class="w-4 h-4 bg-blue-500 mr-2 rounded"></div> Selected</div>
+        </div>
+    </div>
+    
+    <!-- Right Area: Floor Plan -->
+    <div class="bg-white p-6 rounded-lg shadow-md md:col-span-3">
+        <div class="flex justify-between items-center mb-4 border-b pb-2">
+            <h2 class="text-xl font-bold" id="floorTitle">Floor 1 Seating Plan</h2>
+            <button id="bookBtn" class="bg-green-600 text-white px-4 py-2 rounded font-bold hover:bg-green-700 hidden">
+                Book Selected Seat
+            </button>
+        </div>
+        
+        <div id="messageArea" class="hidden mb-4 p-3 rounded"></div>
+        
+        <!-- Seating Grid -->
+        <div id="seatGrid" class="grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 gap-3">
+            <!-- Seats rendered here -->
+            <div class="col-span-full text-center text-gray-500 py-10">Select a time slot and click "Check Availability"</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const dateInput = document.getElementById('dateSelect');
+        const timeSelect = document.getElementById('timeSelect');
+        const floorSelect = document.getElementById('floorSelect');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const seatGrid = document.getElementById('seatGrid');
+        const floorTitle = document.getElementById('floorTitle');
+        const bookBtn = document.getElementById('bookBtn');
+        const messageArea = document.getElementById('messageArea');
+        
+        let selectedSeatId = null;
+        
+        // Set today's date
+        const today = new Date();
+        // Adjust for local timezone
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        const todayStr = `${yyyy}-${mm}-${dd}`;
+        dateInput.value = todayStr;
+        
+        // Populate time slots (7 AM to 11 PM)
+        const currentHour = today.getHours();
+        for (let i = 7; i <= 23; i++) {
+            const option = document.createElement('option');
+            option.value = i;
+            const ampm = i >= 12 ? 'PM' : 'AM';
+            const hour12 = i > 12 ? i - 12 : i;
+            option.text = `${hour12}:00 ${ampm} - ${hour12+1}:00 ${ampm}`;
+            
+            // Disable past slots if booking for today
+            if (i < currentHour) {
+                option.disabled = true;
+                option.text += ' (Passed)';
+            }
+            timeSelect.appendChild(option);
+        }
+        
+        // Set default to next available hour or 7 AM if early
+        if (currentHour >= 7 && currentHour <= 23) {
+            timeSelect.value = currentHour;
+        } else if (currentHour < 7) {
+            timeSelect.value = 7;
+        }
+        
+        function showMessage(msg, isError=false) {
+            messageArea.textContent = msg;
+            messageArea.className = `mb-4 p-3 rounded block ${isError ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`;
+            setTimeout(() => {
+                messageArea.className = 'hidden';
+            }, 5000);
+        }
+
+        async function fetchSeats() {
+            const floor = floorSelect.value;
+            const date = dateInput.value;
+            const time = timeSelect.value;
+            
+            if(!time) {
+                showMessage("Please select a valid time slot.", true);
+                return;
+            }
+            
+            floorTitle.textContent = `Floor ${floor} Seating Plan`;
+            selectedSeatId = null;
+            bookBtn.classList.add('hidden');
+            seatGrid.innerHTML = '<div class="col-span-full text-center py-4">Loading seats...</div>';
+            
+            try {
+                const res = await fetch(`/api/seats?floor=${floor}&date=${date}&time=${time}`);
+                const data = await res.json();
+                
+                if (data.error) {
+                    showMessage(data.error, true);
+                    seatGrid.innerHTML = '';
+                    return;
+                }
+                
+                renderSeats(data.seats);
+            } catch (err) {
+                showMessage("Failed to load seats.", true);
+            }
+        }
+        
+        function createSeatButton(seat) {
+            const btn = document.createElement('button');
+            const isBooked = seat.is_booked;
+            
+            // Base styles
+            btn.className = `w-10 h-10 rounded-full border-2 text-xs font-bold shadow-sm transition-all relative group flex items-center justify-center
+                ${isBooked ? 'bg-red-200 border-red-500 text-red-700 cursor-not-allowed' : 'bg-green-100 border-green-500 text-green-700 hover:bg-green-300 hover:scale-110'}`;
+            
+            // Icon
+            let icon = '🪑';
+            if (seat.type === 'cubicle') icon = '💻';
+            
+            btn.innerHTML = `<span class="text-sm">${icon}</span>`;
+            
+            // Tooltip on hover
+            const tooltip = document.createElement('div');
+            tooltip.className = 'absolute bottom-full mb-2 hidden group-hover:block w-max bg-gray-800 text-white text-xs rounded px-2 py-1 z-10 whitespace-nowrap';
+            tooltip.textContent = `${seat.label} - ${isBooked ? 'Occupied' : 'Available'}`;
+            btn.appendChild(tooltip);
+            
+            if (!isBooked) {
+                btn.onclick = () => selectSeat(seat.id, btn);
+            }
+            
+            // Store id for selection logic
+            btn.dataset.id = seat.id;
+            
+            return btn;
+        }
+
+        function renderSeats(seats) {
+            seatGrid.className = "w-full overflow-x-auto overflow-y-auto pb-4";
+            seatGrid.innerHTML = '';
+            
+            if (seats.length === 0) {
+                seatGrid.innerHTML = '<div class="text-center text-gray-500 py-4">No seats found for this floor.</div>';
+                return;
+            }
+            
+            const floor = parseInt(floorSelect.value);
+            
+            // Group seats
+            const cubicles = seats.filter(s => s.type === 'cubicle');
+            const circular = seats.filter(s => s.type === 'circular');
+            const rectangular = seats.filter(s => s.type === 'rectangular');
+            
+            const circGroups = {};
+            circular.forEach(s => {
+                const t = s.label.split('-')[1];
+                if(!circGroups[t]) circGroups[t] = [];
+                circGroups[t].push(s);
+            });
+            
+            const rectGroups = {};
+            rectangular.forEach(s => {
+                const t = s.label.split('-')[1];
+                if(!rectGroups[t]) rectGroups[t] = [];
+                rectGroups[t].push(s);
+            });
+
+            // Unified Room Canvas - Expanded for more space
+            const roomCanvas = document.createElement('div');
+            roomCanvas.className = "relative min-w-[1800px] min-h-[1200px] bg-[#f8f9fa] border-[16px] border-gray-400 rounded-lg shadow-inner flex flex-row p-12 gap-10";
+            
+            // --- 1. Windows Section (Left Edge) ---
+            const windows = document.createElement('div');
+            windows.className = "w-8 flex flex-col justify-between py-20 border-r-4 border-gray-300 pr-4 relative";
+            windows.innerHTML = `
+                <div class="h-48 w-4 bg-blue-300 rounded-r-lg shadow-lg opacity-80" title="Window"></div>
+                <div class="h-48 w-4 bg-blue-300 rounded-r-lg shadow-lg opacity-80" title="Window"></div>
+                <div class="h-48 w-4 bg-blue-300 rounded-r-lg shadow-lg opacity-80" title="Window"></div>
+                <div class="h-48 w-4 bg-blue-300 rounded-r-lg shadow-lg opacity-80" title="Window"></div>
+                
+                <div class="absolute inset-0 w-96 bg-gradient-to-r from-blue-100/40 to-transparent pointer-events-none -z-10"></div>
+            `;
+            roomCanvas.appendChild(windows);
+            
+            // --- 2. Circular Tables (Window Side) ---
+            const circContainer = document.createElement('div');
+            circContainer.className = "flex-1 flex flex-col pt-8";
+            circContainer.innerHTML = '<div class="text-center font-bold text-gray-400 mb-12 tracking-[0.3em] uppercase text-xl">Discussion Area</div>';
+            
+            const circGrid = document.createElement('div');
+            // Floor 1 has 10 tables, Floor 2 & 3 have 2 tables.
+            const circCols = floor === 1 ? 'grid-cols-2' : 'grid-cols-1 mt-12';
+            circGrid.className = `grid ${circCols} gap-x-24 gap-y-24 justify-items-center`;
+            
+            Object.keys(circGroups).forEach(tableId => {
+                const tableWrap = document.createElement('div');
+                tableWrap.className = 'relative w-32 h-32';
+                
+                const tableGraphic = document.createElement('div');
+                tableGraphic.className = 'absolute inset-0 rounded-full bg-[#d2b48c] border-8 border-[#8b5a2b] shadow-xl flex items-center justify-center text-[#3e2723] font-bold text-lg';
+                tableGraphic.textContent = tableId;
+                tableWrap.appendChild(tableGraphic);
+                
+                const seatsForTable = circGroups[tableId];
+                const radius = 75; // Increased radius to prevent overlap
+                seatsForTable.forEach((seat, index) => {
+                    const angle = (index / 8) * (2 * Math.PI);
+                    const x = Math.cos(angle) * radius;
+                    const y = Math.sin(angle) * radius;
+                    const btn = createSeatButton(seat);
+                    btn.style.position = 'absolute';
+                    btn.style.left = `calc(50% + ${x}px - 20px)`; // 20px for w-10
+                    btn.style.top = `calc(50% + ${y}px - 20px)`;
+                    tableWrap.appendChild(btn);
+                });
+                circGrid.appendChild(tableWrap);
+            });
+            circContainer.appendChild(circGrid);
+            roomCanvas.appendChild(circContainer);
+            
+            // --- 3. Main Aisle ---
+            const aisle = document.createElement('div');
+            aisle.className = "w-32 bg-gray-200/50 flex items-center justify-center border-l-2 border-r-2 border-dashed border-gray-400 rounded-lg";
+            aisle.innerHTML = '<span class="rotate-90 tracking-[1em] text-gray-500 font-bold uppercase text-2xl whitespace-nowrap">Main Walkway</span>';
+            roomCanvas.appendChild(aisle);
+            
+            // --- 4. Rectangular Tables (Center) ---
+            const rectContainer = document.createElement('div');
+            rectContainer.className = "flex-[2] flex flex-col pt-8 px-8";
+            rectContainer.innerHTML = '<div class="text-center font-bold text-gray-400 mb-12 tracking-[0.3em] uppercase text-xl">Reading Hall</div>';
+            
+            const rectGrid = document.createElement('div');
+            // Floor 1 has 30 tables (5x6), Floor 2 & 3 have 15 tables (3x5)
+            const rectCols = floor === 1 ? 'grid-cols-5' : 'grid-cols-3';
+            rectGrid.className = `grid ${rectCols} gap-x-16 gap-y-20 justify-items-center`;
+            
+            Object.keys(rectGroups).forEach(tableId => {
+                const tableWrap = document.createElement('div');
+                tableWrap.className = 'relative w-32 h-20';
+                
+                const tableGraphic = document.createElement('div');
+                tableGraphic.className = 'absolute inset-0 bg-[#cd853f] border-4 border-[#8b4513] shadow-lg rounded-md flex items-center justify-center text-white font-bold text-sm';
+                tableGraphic.textContent = tableId;
+                tableWrap.appendChild(tableGraphic);
+                
+                const seatsForTable = rectGroups[tableId];
+                const positions = [
+                    { left: '15%', top: '-45%' }, // Pushed further out
+                    { left: '65%', top: '-45%' },
+                    { left: '15%', top: '110%' },
+                    { left: '65%', top: '110%' }
+                ];
+                
+                seatsForTable.forEach((seat, index) => {
+                    if (index < 4) {
+                        const btn = createSeatButton(seat);
+                        btn.style.position = 'absolute';
+                        btn.style.left = positions[index].left;
+                        btn.style.top = positions[index].top;
+                        btn.classList.replace('w-10', 'w-8');
+                        btn.classList.replace('h-10', 'h-8');
+                        tableWrap.appendChild(btn);
+                    }
+                });
+                rectGrid.appendChild(tableWrap);
+            });
+            rectContainer.appendChild(rectGrid);
+            roomCanvas.appendChild(rectContainer);
+            
+            // --- 5. Cubicles (Far Right Wall) ---
+            const cubicleContainer = document.createElement('div');
+            cubicleContainer.className = "w-64 bg-gray-200/60 p-6 border-l-8 border-gray-400 flex flex-col items-center rounded-l-xl relative";
+            cubicleContainer.innerHTML = '<div class="text-center font-bold text-gray-500 mb-8 tracking-[0.2em] uppercase text-lg w-full border-b-2 border-gray-400 pb-2">Quiet Zone</div>';
+            
+            const cubicleGrid = document.createElement('div');
+            // Floor 1 has 30, Floor 2 & 3 have 15.
+            cubicleGrid.className = "grid grid-cols-2 gap-6 w-full place-items-center";
+            cubicles.forEach(seat => {
+                const wrap = document.createElement('div');
+                wrap.className = "p-2 bg-white border-2 border-gray-300 shadow-md rounded flex items-center justify-center w-full";
+                const btn = createSeatButton(seat);
+                wrap.appendChild(btn);
+                cubicleGrid.appendChild(wrap);
+            });
+            
+            cubicleContainer.appendChild(cubicleGrid);
+            roomCanvas.appendChild(cubicleContainer);
+            
+            seatGrid.appendChild(roomCanvas);
+        }
+        
+        function selectSeat(id, btnElement) {
+            // Deselect previous
+            const allBtns = seatGrid.querySelectorAll('button');
+            allBtns.forEach(b => {
+                if (b.classList.contains('border-blue-600')) {
+                    b.classList.remove('border-blue-600', 'bg-blue-200', 'ring-4', 'ring-blue-300');
+                    b.classList.add('border-green-500', 'bg-green-100');
+                }
+            });
+            
+            // Select new
+            selectedSeatId = id;
+            btnElement.classList.remove('border-green-500', 'bg-green-100');
+            btnElement.classList.add('border-blue-600', 'bg-blue-200', 'ring-4', 'ring-blue-300');
+            
+            bookBtn.classList.remove('hidden');
+        }
+        
+        bookBtn.addEventListener('click', async () => {
+            if (!selectedSeatId) return;
+            
+            const date = dateInput.value;
+            const time = timeSelect.value;
+            
+            bookBtn.disabled = true;
+            bookBtn.textContent = 'Booking...';
+            
+            try {
+                const res = await fetch('/api/book', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        seat_id: selectedSeatId,
+                        date: date,
+                        start_time: parseInt(time)
+                    })
+                });
+                
+                const data = await res.json();
+                
+                if (res.ok) {
+                    showMessage(data.message);
+                    fetchSeats(); // Refresh
+                } else {
+                    showMessage(data.error || 'Failed to book', true);
+                    bookBtn.disabled = false;
+                    bookBtn.textContent = 'Book Selected Seat';
+                }
+            } catch (err) {
+                showMessage('Network error occurred.', true);
+                bookBtn.disabled = false;
+                bookBtn.textContent = 'Book Selected Seat';
+            }
+        });
+        
+        refreshBtn.addEventListener('click', fetchSeats);
+        
+        // Initial load
+        if(timeSelect.value) {
+            fetchSeats();
+        }
+    });
+</script>
+{% endblock %}

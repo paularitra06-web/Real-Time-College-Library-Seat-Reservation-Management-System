@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="bg-white p-8 rounded-lg shadow-md max-w-4xl mx-auto">
+    <h2 class="text-2xl font-bold mb-6">My Reservation History</h2>
+    
+    {% if reservations %}
+    <div class="overflow-x-auto">
+        <table class="min-w-full bg-white border">
+            <thead>
+                <tr>
+                    <th class="py-2 px-4 border-b text-left">Date</th>
+                    <th class="py-2 px-4 border-b text-left">Time Slot</th>
+                    <th class="py-2 px-4 border-b text-left">Floor</th>
+                    <th class="py-2 px-4 border-b text-left">Seat</th>
+                    <th class="py-2 px-4 border-b text-left">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for res in reservations %}
+                <tr>
+                    <td class="py-2 px-4 border-b">{{ res.date.strftime('%Y-%m-%d') }}</td>
+                    <td class="py-2 px-4 border-b">{{ "%02d:00" | format(res.start_time) }} - {{ "%02d:00" | format(res.end_time) }}</td>
+                    <td class="py-2 px-4 border-b">Floor {{ res.seat.floor }}</td>
+                    <td class="py-2 px-4 border-b">{{ res.seat.label }} ({{ res.seat.type }})</td>
+                    <td class="py-2 px-4 border-b">
+                        <span class="px-2 py-1 rounded text-sm {% if res.status == 'Booked' %}bg-green-200 text-green-800{% else %}bg-gray-200 text-gray-800{% endif %}">
+                            {{ res.status }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-gray-600">You have no reservation history.</p>
+    {% endif %}
+</div>
+{% endblock %}

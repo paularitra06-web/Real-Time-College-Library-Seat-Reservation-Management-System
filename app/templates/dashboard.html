@@ -43,6 +43,28 @@
     
     <!-- Right Area: Floor Plan -->
     <div class="bg-white p-6 rounded-lg shadow-md md:col-span-3">
+        <!-- Active Reservation Countdown Card -->
+        <div id="activeBookingCard" class="hidden mb-6 bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-900 text-white p-5 rounded-xl shadow-lg border border-indigo-500/30">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+                        <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">Active Seat Reservation</span>
+                    </div>
+                    <h3 class="text-xl font-extrabold text-white" id="activeSeatTitle">Loading reservation...</h3>
+                    <p class="text-xs text-indigo-200 mt-1">
+                        Reserved for today • Automatically expires tonight at <span class="font-bold text-amber-300">12:30 AM</span> (Library Closing)
+                    </p>
+                </div>
+                
+                <div class="bg-black/40 backdrop-blur px-5 py-3 rounded-lg border border-white/10 text-center min-w-[210px] w-full sm:w-auto">
+                    <span class="text-xs text-indigo-200 block uppercase tracking-wider font-semibold">Time Remaining</span>
+                    <span id="countdownTimer" class="text-2xl sm:text-3xl font-mono font-black text-amber-400 tracking-wider">--:--:--</span>
+                    <span class="text-[10px] text-gray-300 block mt-0.5">Auto-expires at 12:30 AM</span>
+                </div>
+            </div>
+        </div>
+
         <div class="flex justify-between items-center mb-4 border-b pb-2">
             <h2 class="text-xl font-bold" id="floorTitle">Floor 1 Seating Plan</h2>
             <button id="bookBtn" class="bg-green-600 text-white px-4 py-2 rounded font-bold hover:bg-green-700 hidden">
@@ -112,6 +134,64 @@
             setTimeout(() => {
                 messageArea.className = 'hidden';
             }, 5000);
+        }
+
+        
+        // --- Live Countdown Timer logic ---
+        let remainingSeconds = 0;
+        let countdownTimerInterval = null;
+
+        function formatTimer(sec) {
+            if (sec <= 0) return "00:00:00";
+            const h = Math.floor(sec / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            const s = sec % 60;
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }
+
+        function startCountdown(seconds) {
+            remainingSeconds = seconds;
+            const timerEl = document.getElementById('countdownTimer');
+            if (countdownTimerInterval) clearInterval(countdownTimerInterval);
+
+            timerEl.textContent = formatTimer(remainingSeconds);
+            timerEl.classList.remove('text-red-400');
+            timerEl.classList.add('text-amber-400');
+
+            countdownTimerInterval = setInterval(() => {
+                remainingSeconds--;
+                if (remainingSeconds <= 0) {
+                    clearInterval(countdownTimerInterval);
+                    timerEl.textContent = "EXPIRED";
+                    timerEl.classList.remove('text-amber-400');
+                    timerEl.classList.add('text-red-400');
+                    showMessage("Your seat reservation has reached 12:30 AM and expired.", true);
+                    fetchActiveBooking();
+                    fetchSeats();
+                } else {
+                    timerEl.textContent = formatTimer(remainingSeconds);
+                }
+            }, 1000);
+        }
+
+        async function fetchActiveBooking() {
+            try {
+                const res = await fetch('/api/active-booking');
+                const data = await res.json();
+                const card = document.getElementById('activeBookingCard');
+                const title = document.getElementById('activeSeatTitle');
+
+                if (data.has_active && data.remaining_seconds > 0) {
+                    title.textContent = `Floor ${data.floor} — Seat ${data.seat_label} (${data.seat_type})`;
+                    card.classList.remove('hidden');
+                    startCountdown(data.remaining_seconds);
+                } else {
+                    card.classList.add('hidden');
+                    if (countdownTimerInterval) clearInterval(countdownTimerInterval);
+                }
+            } catch (err) {
+                console.error("Error fetching active booking:", err);
+            }
         }
 
         async function fetchSeats() {
@@ -372,6 +452,7 @@
                 if (res.ok) {
                     showMessage(data.message);
                     fetchSeats(); // Refresh
+                    fetchActiveBooking(); // Refresh countdown timer
                 } else {
                     showMessage(data.error || 'Failed to book', true);
                     bookBtn.disabled = false;
@@ -387,6 +468,7 @@
         refreshBtn.addEventListener('click', fetchSeats);
         
         // Initial load
+        fetchActiveBooking();
         if(timeSelect.value) {
             fetchSeats();
         }

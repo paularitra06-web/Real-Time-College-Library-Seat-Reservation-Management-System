@@ -2,31 +2,50 @@
 
 {% block content %}
 <div class="bg-white p-8 rounded-lg shadow-md max-w-4xl mx-auto">
-    <h2 class="text-2xl font-bold mb-6">My Reservation History</h2>
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 border-b pb-4 gap-2">
+        <div>
+            <h2 class="text-2xl font-bold text-gray-800">My Reservation History</h2>
+            <p class="text-xs text-gray-500 mt-1">All bookings auto-expire at 12:30 AM night after library closing.</p>
+        </div>
+        <a href="{{ url_for('main.dashboard') }}" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition">
+            Go to Booking Portal &rarr;
+        </a>
+    </div>
     
     {% if reservations %}
     <div class="overflow-x-auto">
         <table class="min-w-full bg-white border">
             <thead>
-                <tr>
-                    <th class="py-2 px-4 border-b text-left">Date</th>
-                    <th class="py-2 px-4 border-b text-left">Time Slot</th>
-                    <th class="py-2 px-4 border-b text-left">Floor</th>
-                    <th class="py-2 px-4 border-b text-left">Seat</th>
-                    <th class="py-2 px-4 border-b text-left">Status</th>
+                <tr class="bg-gray-50 text-gray-600 text-xs uppercase tracking-wider">
+                    <th class="py-3 px-4 border-b text-left">Date</th>
+                    <th class="py-3 px-4 border-b text-left">Time Slot</th>
+                    <th class="py-3 px-4 border-b text-left">Floor</th>
+                    <th class="py-3 px-4 border-b text-left">Seat</th>
+                    <th class="py-3 px-4 border-b text-left">Status</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody class="divide-y divide-gray-100 text-sm">
                 {% for res in reservations %}
-                <tr>
-                    <td class="py-2 px-4 border-b">{{ res.date.strftime('%Y-%m-%d') }}</td>
-                    <td class="py-2 px-4 border-b">{{ "%02d:00" | format(res.start_time) }} - {{ "%02d:00" | format(res.end_time) }}</td>
-                    <td class="py-2 px-4 border-b">Floor {{ res.seat.floor }}</td>
-                    <td class="py-2 px-4 border-b">{{ res.seat.label }} ({{ res.seat.type }})</td>
-                    <td class="py-2 px-4 border-b">
-                        <span class="px-2 py-1 rounded text-sm {% if res.status == 'Booked' %}bg-green-200 text-green-800{% else %}bg-gray-200 text-gray-800{% endif %}">
-                            {{ res.status }}
-                        </span>
+                <tr class="hover:bg-gray-50/80 transition">
+                    <td class="py-3 px-4 border-b font-medium text-gray-800">{{ res.date.strftime('%Y-%m-%d') }}</td>
+                    <td class="py-3 px-4 border-b text-gray-600">{{ "%02d:00" | format(res.start_time) }} - {{ "%02d:00" | format(res.end_time) }}</td>
+                    <td class="py-3 px-4 border-b text-gray-700">Floor {{ res.seat.floor }}</td>
+                    <td class="py-3 px-4 border-b font-semibold text-gray-800">{{ res.seat.label }} <span class="text-xs font-normal text-gray-500">({{ res.seat.type }})</span></td>
+                    <td class="py-3 px-4 border-b">
+                        {% if res.status == 'Booked' %}
+                            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                Active (Valid till 12:30 AM)
+                            </span>
+                        {% elif res.status == 'Expired' %}
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800 border border-amber-300">
+                                Expired (Past 12:30 AM)
+                            </span>
+                        {% else %}
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700 border border-gray-300">
+                                {{ res.status }}
+                            </span>
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -34,7 +53,11 @@
         </table>
     </div>
     {% else %}
-    <p class="text-gray-600">You have no reservation history.</p>
+    <div class="text-center py-12">
+        <div class="text-4xl mb-3">📅</div>
+        <p class="text-gray-600 font-medium">You have no reservation history yet.</p>
+        <p class="text-xs text-gray-400 mt-1">Book a seat from the dashboard to get started.</p>
+    </div>
     {% endif %}
 </div>
 {% endblock %}
